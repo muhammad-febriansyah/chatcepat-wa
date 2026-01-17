@@ -52,6 +52,15 @@ export class ExpressServer {
   }
 
   private setupRoutes(): void {
+    // Root route
+    this.app.get('/', (req, res) => {
+      res.json({
+        message: 'Hello Express Active',
+        name: 'ChatCepat WA Gateway',
+        version: '1.0.0',
+      });
+    });
+
     // Health check
     this.app.get('/health', (req, res) => {
       res.json({
