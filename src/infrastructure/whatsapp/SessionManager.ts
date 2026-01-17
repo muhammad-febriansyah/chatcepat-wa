@@ -23,6 +23,7 @@ export class SessionManager {
   private activeSessions: Map<string, WASocket> = new Map();
   private sessionCallbacks: Map<string, ConnectionEventCallbacks> = new Map();
   private reconnectAttempts: Map<string, number> = new Map();
+  private manualDisconnect: Set<string> = new Set(); // Track manual disconnects to prevent auto-reconnect
 
   constructor(
     @inject(TYPES.SocketServer) private socketServer: SocketServer,
@@ -120,7 +121,14 @@ export class SessionManager {
       if (connection === 'close') {
         const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
         const errorMessage = (lastDisconnect?.error as Boom)?.message || 'Unknown error';
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+        // Check if this was a manual disconnect - if so, don't reconnect
+        const wasManualDisconnect = this.manualDisconnect.has(sessionId);
+        if (wasManualDisconnect) {
+          this.manualDisconnect.delete(sessionId);
+        }
+
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut && !wasManualDisconnect;
 
         console.log(`Session ${sessionId} closed. Status code: ${statusCode}, Error: ${errorMessage}, Should reconnect: ${shouldReconnect}`);
 
@@ -241,13 +249,18 @@ export class SessionManager {
             this.socketServer.emitSessionDisconnected(userId, sessionId, 'Max reconnect attempts reached');
           }
         } else {
-          // Logged out - remove session and clean up files
+          // Logged out or manual disconnect - remove session and clean up
+          const disconnectReason = wasManualDisconnect ? 'Manual disconnect' : 'Logged out';
+          console.log(`🔌 Session ${sessionId} disconnected: ${disconnectReason}`);
+
           this.activeSessions.delete(sessionId);
           this.sessionCallbacks.delete(sessionId);
           this.reconnectAttempts.delete(sessionId);
 
-          // Delete session files so QR code can be generated again
-          await this.deleteSessionFiles(sessionId);
+          // Delete session files so QR code can be generated again (only for logout)
+          if (!wasManualDisconnect) {
+            await this.deleteSessionFiles(sessionId);
+          }
 
           // Update database DIRECTLY to ensure status is synced
           // This is critical because callbacks might not be available after restart
@@ -259,15 +272,15 @@ export class SessionManager {
               qrCode: null,
               qrExpiresAt: null,
             });
-            console.log(`✅ Database updated for logged out session ${sessionId}`);
+            console.log(`✅ Database updated for disconnected session ${sessionId} (${disconnectReason})`);
           } catch (error) {
             console.error(`❌ Error updating database for session ${sessionId}:`, error);
           }
 
-          callbacks.onDisconnected?.(sessionId, 'Logged out');
+          callbacks.onDisconnected?.(sessionId, disconnectReason);
 
           // Emit WebSocket event
-          this.socketServer.emitSessionDisconnected(userId, sessionId, 'Logged out');
+          this.socketServer.emitSessionDisconnected(userId, sessionId, disconnectReason);
         }
       }
 
@@ -343,18 +356,24 @@ export class SessionManager {
   async disconnectSession(sessionId: string): Promise<void> {
     const socket = this.activeSessions.get(sessionId);
     if (socket) {
+      // Mark as manual disconnect to prevent auto-reconnect
+      this.manualDisconnect.add(sessionId);
+
       // Just close the connection, don't logout
       await socket.end(undefined);
       this.activeSessions.delete(sessionId);
       this.sessionCallbacks.delete(sessionId);
       this.reconnectAttempts.delete(sessionId);
-      console.log(`Session ${sessionId} disconnected`);
+      console.log(`Session ${sessionId} manually disconnected (no auto-reconnect)`);
     }
   }
 
   async logoutSession(sessionId: string): Promise<void> {
     const socket = this.activeSessions.get(sessionId);
     if (socket) {
+      // Mark as manual disconnect to prevent any reconnect attempts
+      this.manualDisconnect.add(sessionId);
+
       // Logout (will remove auth credentials)
       await socket.logout();
       this.activeSessions.delete(sessionId);
