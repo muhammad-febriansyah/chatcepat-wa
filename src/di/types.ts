@@ -1,0 +1,52 @@
+export const TYPES = {
+  // Repositories
+  SessionRepository: Symbol.for('SessionRepository'),
+  MessageRepository: Symbol.for('MessageRepository'),
+  ContactRepository: Symbol.for('ContactRepository'),
+  GroupRepository: Symbol.for('GroupRepository'),
+  BroadcastRepository: Symbol.for('BroadcastRepository'),
+  RateLimitRepository: Symbol.for('RateLimitRepository'),
+
+  // Services
+  WhatsAppClient: Symbol.for('WhatsAppClient'),
+  OpenAIService: Symbol.for('OpenAIService'),
+  RajaOngkirService: Symbol.for('RajaOngkirService'),
+  BitShipService: Symbol.for('BitShipService'),
+  QueueService: Symbol.for('QueueService'),
+  RateLimiter: Symbol.for('RateLimiter'),
+  LaravelAPIClient: Symbol.for('LaravelAPIClient'),
+  SocketServer: Symbol.for('SocketServer'),
+
+  // Use Cases
+  CreateSessionUseCase: Symbol.for('CreateSessionUseCase'),
+  DeleteSessionUseCase: Symbol.for('DeleteSessionUseCase'),
+  GetSessionQRCodeUseCase: Symbol.for('GetSessionQRCodeUseCase'),
+  GetUserSessionsUseCase: Symbol.for('GetUserSessionsUseCase'),
+  DisconnectSessionUseCase: Symbol.for('DisconnectSessionUseCase'),
+  SendMessageUseCase: Symbol.for('SendMessageUseCase'),
+  ProcessIncomingMessageUseCase: Symbol.for('ProcessIncomingMessageUseCase'),
+  GetMessageHistoryUseCase: Symbol.for('GetMessageHistoryUseCase'),
+  SendBroadcastUseCase: Symbol.for('SendBroadcastUseCase'),
+  CreateBroadcastUseCase: Symbol.for('CreateBroadcastUseCase'),
+  ExecuteBroadcastUseCase: Symbol.for('ExecuteBroadcastUseCase'),
+  GetBroadcastCampaignsUseCase: Symbol.for('GetBroadcastCampaignsUseCase'),
+  CancelBroadcastUseCase: Symbol.for('CancelBroadcastUseCase'),
+  ProcessAutoReplyUseCase: Symbol.for('ProcessAutoReplyUseCase'),
+  GetOpenAIResponseUseCase: Symbol.for('GetOpenAIResponseUseCase'),
+  CheckRajaOngkirCommandUseCase: Symbol.for('CheckRajaOngkirCommandUseCase'),
+  SyncContactsUseCase: Symbol.for('SyncContactsUseCase'),
+  GetSessionContactsUseCase: Symbol.for('GetSessionContactsUseCase'),
+  ScrapeContactsUseCase: Symbol.for('ScrapeContactsUseCase'),
+  GetScrapingHistoryUseCase: Symbol.for('GetScrapingHistoryUseCase'),
+  ScrapeGroupsUseCase: Symbol.for('ScrapeGroupsUseCase'),
+  GetSessionGroupsUseCase: Symbol.for('GetSessionGroupsUseCase'),
+  BroadcastToGroupUseCase: Symbol.for('BroadcastToGroupUseCase'),
+  ScrapeGroupMembersUseCase: Symbol.for('ScrapeGroupMembersUseCase'),
+  CaptureGroupMemberUseCase: Symbol.for('CaptureGroupMemberUseCase'),
+
+  // Infrastructure
+  DatabaseConnection: Symbol.for('DatabaseConnection'),
+  RedisConnection: Symbol.for('RedisConnection'),
+  SessionManager: Symbol.for('SessionManager'),
+  MessageHandler: Symbol.for('MessageHandler'),
+};
