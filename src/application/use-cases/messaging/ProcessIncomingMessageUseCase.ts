@@ -76,28 +76,43 @@ export class ProcessIncomingMessageUseCase {
 
     console.log(`Incoming message stored: ${data.messageId} from ${data.fromNumber}`);
 
-    // Update or create contact with push_name (sender's WhatsApp display name)
-    if (data.pushName) {
+    // Auto-save contact from incoming chat
+    // Check if auto-save contacts is enabled (default: true)
+    const autoSaveContacts = session.settings?.autoSaveContacts ?? true;
+
+    if (autoSaveContacts) {
       try {
         await this.contactRepository.create({
           userId: session.userId,
           whatsappSessionId: session.id,
           phoneNumber: data.fromNumber,
           displayName: null, // Don't overwrite display_name (user-set name)
-          pushName: data.pushName,
+          pushName: data.pushName || null,
           isBusiness: false,
-          isGroup: false,
+          isGroup: data.fromNumber.endsWith('@g.us'),
           metadata: null,
           lastMessageAt: new Date(),
         });
-        console.log(`📇 Contact updated with push_name: ${data.fromNumber} -> ${data.pushName}`);
+        console.log(`📇 Contact auto-saved: ${data.fromNumber}${data.pushName ? ` (${data.pushName})` : ''}`);
       } catch (error) {
-        console.error(`❌ Failed to update contact push_name:`, error);
+        console.error(`❌ Failed to auto-save contact:`, error);
       }
+    } else {
+      console.log(`⏭️ Auto-save contacts disabled for session ${whatsappSessionId}`);
     }
 
     // Emit WebSocket event
     this.socketServer.emitIncomingMessage(session.userId, session.sessionId, incomingMessage.toJSON());
+
+    // ** HUMAN AGENT ROUTING **
+    // Check if this conversation is assigned to a human agent
+    const conversation = await this.checkAndCreateConversation(session, data);
+
+    if (conversation && conversation.human_agent_id) {
+      console.log(`🧑‍💼 Message routed to human agent ID ${conversation.human_agent_id}`);
+      // Skip auto-reply if assigned to human agent
+      return;
+    }
 
     // Check if auto-reply is enabled for this session
     const autoReplyEnabled = session.settings?.autoReplyEnabled ?? true;
@@ -130,12 +145,93 @@ export class ProcessIncomingMessageUseCase {
           socket: data.socket,
           aiAssistantType: session.aiAssistantType || 'general', // Pass AI assistant type from session
           replyJid: data.replyJid, // Pass the correct JID for replying
+          sessionName: session.name || 'ChatCepat', // Pass business name from session
+          aiConfig: session.aiConfig || null, // Pass AI configuration
         })
         .catch((error) => {
           console.error('❌ Auto-reply failed:', error);
         });
     } else {
       console.warn(`⚠️ Socket not available for auto-reply, skipping for session ${whatsappSessionId}`);
+    }
+  }
+
+  /**
+   * Check if conversation exists and create/update it
+   * Returns conversation with human_agent_id if assigned
+   */
+  private async checkAndCreateConversation(session: any, data: IncomingMessageData): Promise<any> {
+    try {
+      const mysql = await import('mysql2/promise');
+      const { env } = await import('@shared/config/env');
+
+      // Create direct connection to database
+      const conn = await mysql.createConnection({
+        host: env.db.host,
+        user: env.db.user,
+        password: env.db.password,
+        database: env.db.name,
+      });
+
+      // Check if conversation exists
+      const [conversations]: any = await conn.execute(
+        `SELECT id, human_agent_id, status FROM conversations
+         WHERE whatsapp_session_id = ? AND customer_phone = ? AND deleted_at IS NULL
+         LIMIT 1`,
+        [session.id, data.fromNumber]
+      );
+
+      let conversation = conversations[0];
+
+      if (!conversation) {
+        // Create new conversation
+        const [result]: any = await conn.execute(
+          `INSERT INTO conversations
+           (user_id, whatsapp_session_id, customer_phone, customer_name, status,
+            last_message_at, last_message_text, last_message_from, unread_by_agent, unread_count, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'open', NOW(), ?, 'customer', 1, 1, NOW(), NOW())`,
+          [session.userId, session.id, data.fromNumber, data.pushName, data.content]
+        );
+
+        conversation = {
+          id: result.insertId,
+          human_agent_id: null,
+          status: 'open',
+        };
+
+        console.log(`📝 New conversation created: ID ${conversation.id}`);
+      } else {
+        // Update existing conversation
+        const newUnreadCount = conversation.human_agent_id ? (conversation.unread_count || 0) + 1 : 0;
+
+        await conn.execute(
+          `UPDATE conversations
+           SET last_message_at = NOW(),
+               last_message_text = ?,
+               last_message_from = 'customer',
+               unread_by_agent = ?,
+               unread_count = ?,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [data.content, conversation.human_agent_id ? 1 : 0, newUnreadCount, conversation.id]
+        );
+
+        console.log(`📝 Conversation updated: ID ${conversation.id}`);
+      }
+
+      // Store conversation message
+      await conn.execute(
+        `INSERT INTO conversation_messages
+         (conversation_id, message_id, direction, message_text, message_type, is_read, created_at, updated_at)
+         VALUES (?, ?, 'inbound', ?, ?, 0, NOW(), NOW())`,
+        [conversation.id, data.messageId, data.content, data.type]
+      );
+
+      await conn.end();
+      return conversation;
+    } catch (error) {
+      console.error('Error checking/creating conversation:', error);
+      return null;
     }
   }
 }

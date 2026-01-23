@@ -228,6 +228,16 @@ export class SessionRepository implements ISessionRepository {
       }
     }
 
+    let aiConfig = null;
+    if ((row as any).ai_config) {
+      try {
+        aiConfig = typeof (row as any).ai_config === 'string' ? JSON.parse((row as any).ai_config) : (row as any).ai_config;
+      } catch (e) {
+        console.error('Error parsing ai_config:', e);
+        aiConfig = null;
+      }
+    }
+
     return new WhatsAppSession(
       row.id,
       row.user_id,
@@ -236,6 +246,7 @@ export class SessionRepository implements ISessionRepository {
       row.name,
       row.status,
       row.ai_assistant_type || 'general',
+      aiConfig,
       row.qr_code,
       row.qr_expires_at,
       row.webhook_url,

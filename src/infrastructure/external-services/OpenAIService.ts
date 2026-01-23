@@ -25,7 +25,9 @@ export class OpenAIService implements IOpenAIService {
     fromNumber: string,
     message: string,
     config?: OpenAIConfig,
-    aiAssistantType?: string
+    aiAssistantType?: string,
+    businessName?: string,
+    aiConfig?: any
   ): Promise<string> {
     const conversationKey = `${sessionId}:${fromNumber}`;
 
@@ -44,7 +46,11 @@ export class OpenAIService implements IOpenAIService {
     }
 
     // Prepare system prompt based on AI assistant type
-    const systemPrompt = config?.systemPrompt || this.getSystemPromptByType(aiAssistantType || 'general');
+    const systemPrompt = config?.systemPrompt || this.getSystemPromptByType(
+      aiAssistantType || 'general',
+      businessName || 'ChatCepat',
+      aiConfig
+    );
 
     try {
       const completion = await this.client.chat.completions.create({
@@ -97,22 +103,88 @@ export class OpenAIService implements IOpenAIService {
     return this.conversationHistory.get(conversationKey) || [];
   }
 
-  private getSystemPromptByType(type: string): string {
-    switch (type) {
+  private getSystemPromptByType(type: string, businessName: string, aiConfig?: any): string {
+    const businessContext = this.getBusinessContext(businessName, aiConfig);
+
+    // Determine which assistant type to use
+    let assistantType = type;
+
+    // If creation_method is 'ai', use agent_category mapping
+    if (aiConfig?.creation_method === 'ai' && aiConfig?.agent_category) {
+      const categoryMap: Record<string, string> = {
+        'customer-service': 'customer_service',
+        'sales': 'sales',
+        'support': 'technical_support',
+        'general': 'general',
+      };
+      assistantType = categoryMap[aiConfig.agent_category] || type;
+    }
+
+    switch (assistantType) {
       case 'sales':
-        return this.getSalesAssistantPrompt();
+        return this.getSalesAssistantPrompt(businessContext);
       case 'customer_service':
-        return this.getCustomerServicePrompt();
+        return this.getCustomerServicePrompt(businessContext);
       case 'technical_support':
-        return this.getTechnicalSupportPrompt();
+        return this.getTechnicalSupportPrompt(businessContext);
       case 'general':
       default:
-        return this.getGeneralAssistantPrompt();
+        return this.getGeneralAssistantPrompt(businessContext);
     }
   }
 
-  private getSalesAssistantPrompt(): string {
-    return `Anda adalah Sales Assistant profesional yang membantu meningkatkan penjualan dan closing deals.
+  private getBusinessContext(businessName: string, aiConfig?: any): string {
+    let context = `KONTEKS BISNIS:\nAnda adalah AI Assistant untuk **${businessName}**.\n`;
+
+    if (aiConfig) {
+      // Add language preference instruction
+      if (aiConfig.primary_language) {
+        const languageMap: Record<string, string> = {
+          'id': 'BAHASA: Selalu jawab dalam Bahasa Indonesia.',
+          'en': 'LANGUAGE: Always respond in English.',
+          'both': 'BAHASA/LANGUAGE: Respond in the same language the customer uses. If Indonesian, reply in Indonesian. If English, reply in English.',
+        };
+        context += `\n${languageMap[aiConfig.primary_language] || languageMap['id']}\n`;
+      }
+
+      // Add creation method context
+      if (aiConfig.creation_method === 'ai' && aiConfig.ai_description) {
+        context += `\nDESKRIPSI & ATURAN CUSTOM:\n${aiConfig.ai_description}\n`;
+      } else if (aiConfig.ai_description) {
+        context += `\nDESKRIPSI & ATURAN:\n${aiConfig.ai_description}\n`;
+      }
+
+      if (aiConfig.products && aiConfig.products.length > 0) {
+        context += `\nPRODUK YANG TERSEDIA:\n`;
+        aiConfig.products.forEach((product: any, index: number) => {
+          context += `${index + 1}. ${product.name} - Rp ${product.price.toLocaleString('id-ID')}\n`;
+          if (product.description) {
+            context += `   ${product.description}\n`;
+          }
+          if (product.purchase_link) {
+            context += `   Link: ${product.purchase_link}\n`;
+          }
+        });
+      }
+
+      if (aiConfig.communication_tone) {
+        const toneMap: Record<string, string> = {
+          professional: 'Professional dan formal',
+          friendly: 'Ramah dan hangat',
+          casual: 'Santai dan informal',
+          formal: 'Sangat formal dan resmi',
+        };
+        context += `\nGAYA KOMUNIKASI: ${toneMap[aiConfig.communication_tone] || 'Professional'}\n`;
+      }
+    }
+
+    return context;
+  }
+
+  private getSalesAssistantPrompt(businessContext: string): string {
+    return `${businessContext}
+
+Anda adalah Sales Assistant profesional yang membantu meningkatkan penjualan dan closing deals.
 
 PERSONA:
 - Energik, persuasif, dan berorientasi pada hasil
@@ -150,8 +222,10 @@ LARANGAN:
 - Jangan paksa customer yang tidak siap`;
   }
 
-  private getCustomerServicePrompt(): string {
-    return `Anda adalah Customer Service Assistant yang ramah dan helpful.
+  private getCustomerServicePrompt(businessContext: string): string {
+    return `${businessContext}
+
+Anda adalah Customer Service Assistant yang ramah dan helpful.
 
 PERSONA:
 - Sangat ramah, sabar, dan empati
@@ -194,8 +268,10 @@ LARANGAN:
 - Jangan janji yang tidak pasti`;
   }
 
-  private getTechnicalSupportPrompt(): string {
-    return `Anda adalah Technical Support Specialist yang expert dalam troubleshooting.
+  private getTechnicalSupportPrompt(businessContext: string): string {
+    return `${businessContext}
+
+Anda adalah Technical Support Specialist yang expert dalam troubleshooting.
 
 PERSONA:
 - Teknis, detail-oriented, dan sistematis
@@ -247,8 +323,10 @@ LARANGAN:
 - Jangan asal tebak tanpa investigasi`;
   }
 
-  private getGeneralAssistantPrompt(): string {
-    return `Anda adalah General AI Assistant yang membantu dengan berbagai keperluan.
+  private getGeneralAssistantPrompt(businessContext: string): string {
+    return `${businessContext}
+
+Anda adalah General AI Assistant yang membantu dengan berbagai keperluan.
 
 PERSONA:
 - Friendly, helpful, dan versatile
@@ -300,6 +378,7 @@ LARANGAN:
   }
 
   private getDefaultSystemPrompt(): string {
-    return this.getGeneralAssistantPrompt();
+    const defaultContext = this.getBusinessContext('ChatCepat', null);
+    return this.getGeneralAssistantPrompt(defaultContext);
   }
 }

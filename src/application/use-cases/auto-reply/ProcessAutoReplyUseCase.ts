@@ -15,6 +15,8 @@ interface ProcessAutoReplyInput {
   socket: WASocket; // Pass socket as parameter to avoid circular dependency
   aiAssistantType?: string; // AI assistant type from session
   replyJid?: string; // The correct JID to use when replying (handles LID vs phone number)
+  sessionName?: string; // Business name from session
+  aiConfig?: any; // AI configuration from session
 }
 
 @injectable()
@@ -37,7 +39,7 @@ export class ProcessAutoReplyUseCase {
   ) {}
 
   async execute(input: ProcessAutoReplyInput): Promise<WhatsAppMessage> {
-    const { sessionId, whatsappSessionId, incomingMessage, socket, aiAssistantType, replyJid } = input;
+    const { sessionId, whatsappSessionId, incomingMessage, socket, aiAssistantType, replyJid, sessionName, aiConfig } = input;
 
     // Only process incoming text messages
     if (incomingMessage.direction !== 'incoming' || incomingMessage.type !== 'text') {
@@ -48,12 +50,19 @@ export class ProcessAutoReplyUseCase {
     const fromNumber = incomingMessage.fromNumber;
 
     let replyText: string;
-    let autoReplySource: 'openai' | 'rajaongkir';
+    let autoReplySource: 'openai' | 'rajaongkir' | 'manual';
 
-    // Check if message is a RajaOngkir command
-    const ongkirMatch = messageContent.match(this.ONGKIR_REGEX);
+    // 1. Check Manual Auto-Reply first (highest priority)
+    const manualReply = await this.checkManualAutoReply(sessionId, messageContent);
 
-    if (ongkirMatch) {
+    if (manualReply) {
+      console.log(`📝 Using manual auto-reply: ${manualReply.substring(0, 50)}...`);
+      replyText = manualReply;
+      autoReplySource = 'manual';
+    }
+    // 2. Check if message is a RajaOngkir command
+    else if (messageContent.match(this.ONGKIR_REGEX)) {
+      const ongkirMatch = messageContent.match(this.ONGKIR_REGEX)!;
       // Process shipping cost check command
       console.log(`✅ Detected shipping cost command from ${fromNumber}: ${messageContent}`);
 
@@ -107,7 +116,7 @@ export class ProcessAutoReplyUseCase {
       }
     } else {
       // Process with OpenAI
-      console.log(`Processing with OpenAI for ${fromNumber} (AI Type: ${aiAssistantType || 'general'}): ${messageContent}`);
+      console.log(`Processing with OpenAI for ${fromNumber} (AI Type: ${aiAssistantType || 'general'}, Business: ${sessionName || 'ChatCepat'}): ${messageContent}`);
 
       try {
         replyText = await this.openAIService.generateResponse(
@@ -115,7 +124,9 @@ export class ProcessAutoReplyUseCase {
           fromNumber,
           messageContent,
           undefined, // config
-          aiAssistantType || 'general' // AI assistant type
+          aiAssistantType || 'general', // AI assistant type
+          sessionName || 'ChatCepat', // Business name
+          aiConfig // AI configuration
         );
         autoReplySource = 'openai';
       } catch (error: any) {
@@ -168,6 +179,11 @@ export class ProcessAutoReplyUseCase {
         throw new Error(`Session ${whatsappSessionId} not active`);
       }
 
+      // Check if socket is truly connected (has authenticated user)
+      if (!socket.user) {
+        throw new Error(`Session ${whatsappSessionId} is not connected to WhatsApp`);
+      }
+
       // Use replyJid if provided, otherwise construct from fromNumber
       // replyJid handles LID (Linked Identity) vs phone number correctly
       let jid: string;
@@ -189,15 +205,30 @@ export class ProcessAutoReplyUseCase {
       const randomVariation = Math.floor(Math.random() * 2000) - 1000; // ±1 second variation
       const typingDuration = Math.max(1500, baseTypingMs + randomVariation); // Minimum 1.5 seconds
 
-      // 2. Show "typing..." indicator
-      console.log(`⌨️ Simulating typing for ${typingDuration}ms before sending to ${jid}`);
-      await socket.sendPresenceUpdate('composing', jid);
+      // 2. Show "typing..." indicator (with error handling for connection issues)
+      try {
+        console.log(`⌨️ Simulating typing for ${typingDuration}ms before sending to ${jid}`);
+        await socket.sendPresenceUpdate('composing', jid);
+      } catch (presenceError: any) {
+        // Log but don't fail - presence updates are optional
+        console.warn(`⚠️ Failed to send typing indicator: ${presenceError.message}`);
+        // Check if connection is closed
+        if (presenceError.message?.includes('Connection Closed') ||
+            presenceError.output?.payload?.message?.includes('Connection Closed')) {
+          throw new Error('WhatsApp connection was closed while preparing to send message');
+        }
+      }
 
       // 3. Wait while "typing"
       await new Promise(resolve => setTimeout(resolve, typingDuration));
 
-      // 4. Stop typing indicator
-      await socket.sendPresenceUpdate('paused', jid);
+      // 4. Stop typing indicator (with error handling)
+      try {
+        await socket.sendPresenceUpdate('paused', jid);
+      } catch (presenceError: any) {
+        // Log but don't fail - presence updates are optional
+        console.warn(`⚠️ Failed to clear typing indicator: ${presenceError.message}`);
+      }
 
       // 5. Small pause before actually sending (like pressing enter)
       const sendDelay = 300 + Math.floor(Math.random() * 500); // 300-800ms
@@ -213,7 +244,18 @@ export class ProcessAutoReplyUseCase {
       await this.messageRepository.updateStatus(outgoingMessage.messageId, 'sent');
       console.log(`✅ Auto-reply sent to ${fromNumber} (${autoReplySource}): ${replyText.substring(0, 50)}...`);
     } catch (error: any) {
-      console.error('Failed to send auto-reply:', error);
+      // Enhanced error handling with more specific messages
+      const errorMessage = error.message || 'Unknown error';
+      const isConnectionError = errorMessage.includes('Connection Closed') ||
+                                errorMessage.includes('not connected') ||
+                                errorMessage.includes('not active');
+
+      if (isConnectionError) {
+        console.error(`❌ Auto-reply failed: ${errorMessage}`);
+      } else {
+        console.error('Failed to send auto-reply:', error);
+      }
+
       await this.messageRepository.updateStatus(outgoingMessage.messageId, 'failed');
       throw error;
     }
@@ -221,4 +263,92 @@ export class ProcessAutoReplyUseCase {
     return outgoingMessage;
   }
 
+  /**
+   * Check if there's a manual auto-reply that matches the message content
+   */
+  private async checkManualAutoReply(sessionId: number, messageContent: string): Promise<string | null> {
+    try {
+      const mysql = await import('mysql2/promise');
+      const { env } = await import('@shared/config/env');
+
+      // Create connection
+      const conn = await mysql.createConnection({
+        host: env.db.host,
+        user: env.db.user,
+        password: env.db.password,
+        database: env.db.name,
+      });
+
+      // Query manual auto-replies for this session (only custom type)
+      const [rows]: any = await conn.execute(
+        `SELECT trigger_value as keyword, custom_reply as reply_text, trigger_type as match_type
+         FROM whatsapp_auto_replies
+         WHERE whatsapp_session_id = ? AND is_active = 1 AND reply_type = 'custom'
+         ORDER BY priority DESC, id ASC`,
+        [sessionId]
+      );
+
+      await conn.end();
+
+      if (!rows || rows.length === 0) {
+        return null;
+      }
+
+      const messageLower = messageContent.toLowerCase().trim();
+
+      // Check each auto-reply rule
+      for (const row of rows) {
+        const keyword = row.keyword.toLowerCase().trim();
+        const matchType = row.match_type || 'contains';
+
+        let isMatch = false;
+
+        switch (matchType) {
+          case 'exact':
+            // Exact match (case-insensitive)
+            isMatch = messageLower === keyword;
+            break;
+
+          case 'contains':
+            // Contains keyword anywhere
+            isMatch = messageLower.includes(keyword);
+            break;
+
+          case 'starts_with':
+            // Starts with keyword
+            isMatch = messageLower.startsWith(keyword);
+            break;
+
+          case 'ends_with':
+            // Ends with keyword
+            isMatch = messageLower.endsWith(keyword);
+            break;
+
+          case 'regex':
+            // Regex pattern match
+            try {
+              const regex = new RegExp(keyword, 'i');
+              isMatch = regex.test(messageContent);
+            } catch (e) {
+              console.error('Invalid regex pattern:', keyword);
+              isMatch = false;
+            }
+            break;
+
+          default:
+            isMatch = messageLower === keyword;
+        }
+
+        if (isMatch) {
+          console.log(`✅ Manual auto-reply matched (${matchType}): "${keyword}"`);
+          return row.reply_text;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error checking manual auto-reply:', error);
+      return null;
+    }
+  }
 }
