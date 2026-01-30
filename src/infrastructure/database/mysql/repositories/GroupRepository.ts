@@ -36,8 +36,8 @@ export class GroupRepository implements IGroupRepository {
         `INSERT INTO whatsapp_groups (
           user_id, whatsapp_session_id, group_jid, name, description,
           owner_jid, subject_time, subject_owner_jid,
-          participants_count, admins_count, is_announce, is_locked, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          participants_count, admins_count, is_announce, is_locked, metadata, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         ON DUPLICATE KEY UPDATE
           name = VALUES(name),
           description = VALUES(description),
@@ -83,6 +83,7 @@ export class GroupRepository implements IGroupRepository {
     }
 
     return await this.db.transaction(async (connection) => {
+      const now = new Date();
       const values = groups.map(group => [
         group.userId,
         group.whatsappSessionId,
@@ -97,16 +98,18 @@ export class GroupRepository implements IGroupRepository {
         group.isAnnounce,
         group.isLocked,
         group.metadata ? JSON.stringify(group.metadata) : null,
+        now,
+        now,
       ]);
 
-      const placeholders = groups.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = groups.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const flatValues = values.flat();
 
       const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO whatsapp_groups (
           user_id, whatsapp_session_id, group_jid, name, description,
           owner_jid, subject_time, subject_owner_jid,
-          participants_count, admins_count, is_announce, is_locked, metadata
+          participants_count, admins_count, is_announce, is_locked, metadata, created_at, updated_at
         ) VALUES ${placeholders}
         ON DUPLICATE KEY UPDATE
           name = VALUES(name),

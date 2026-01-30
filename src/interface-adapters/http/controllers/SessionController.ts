@@ -159,11 +159,12 @@ export class SessionController {
           },
         });
 
-        return res.json({
+        res.json({
           success: true,
           message: 'Settings updated successfully',
           data: session.toJSON(),
         });
+        return;
       }
 
       // If aiConfig is provided (new format)
@@ -175,11 +176,12 @@ export class SessionController {
           aiConfig,
         });
 
-        return res.json({
+        res.json({
           success: true,
           message: 'Settings updated successfully',
           data: session.toJSON(),
         });
+        return;
       }
 
       // If only settings is provided

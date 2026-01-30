@@ -40,8 +40,8 @@ export class RateLimitRepository implements IRateLimitRepository {
       await this.db.execute(
         `INSERT INTO whatsapp_rate_limits (
           whatsapp_session_id, messages_sent_last_hour,
-          messages_sent_today, last_message_sent_at, cooldown_until, hourly_buckets
-        ) VALUES (?, 0, 0, NULL, NULL, NULL)`,
+          messages_sent_today, last_message_sent_at, cooldown_until, hourly_buckets, created_at, updated_at
+        ) VALUES (?, 0, 0, NULL, NULL, NULL, NOW(), NOW())`,
         [sessionId]
       );
 

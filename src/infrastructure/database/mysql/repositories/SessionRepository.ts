@@ -88,8 +88,8 @@ export class SessionRepository implements ISessionRepository {
     const result = await this.db.execute(
       `INSERT INTO whatsapp_sessions (
         user_id, session_id, phone_number, name, status, ai_assistant_type, qr_code, qr_expires_at,
-        webhook_url, settings, last_connected_at, last_disconnected_at, is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        webhook_url, settings, last_connected_at, last_disconnected_at, is_active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       [
         session.userId,
         session.sessionId,

@@ -31,8 +31,8 @@ export class ContactRepository implements IContactRepository {
       const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO whatsapp_contacts (
           user_id, whatsapp_session_id, phone_number, display_name, push_name,
-          is_business, is_group, metadata, last_message_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          is_business, is_group, metadata, last_message_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         ON DUPLICATE KEY UPDATE
           display_name = COALESCE(VALUES(display_name), display_name),
           push_name = COALESCE(VALUES(push_name), push_name),
@@ -70,6 +70,7 @@ export class ContactRepository implements IContactRepository {
     }
 
     return await this.db.transaction(async (connection) => {
+      const now = new Date();
       const values = contacts.map(contact => [
         contact.userId,
         contact.whatsappSessionId,
@@ -80,15 +81,17 @@ export class ContactRepository implements IContactRepository {
         contact.isGroup,
         contact.metadata ? JSON.stringify(contact.metadata) : null,
         contact.lastMessageAt,
+        now,
+        now,
       ]);
 
-      const placeholders = contacts.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = contacts.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const flatValues = values.flat();
 
       const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO whatsapp_contacts (
           user_id, whatsapp_session_id, phone_number, display_name, push_name,
-          is_business, is_group, metadata, last_message_at
+          is_business, is_group, metadata, last_message_at, created_at, updated_at
         ) VALUES ${placeholders}
         ON DUPLICATE KEY UPDATE
           display_name = COALESCE(VALUES(display_name), display_name),

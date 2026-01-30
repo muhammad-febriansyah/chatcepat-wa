@@ -120,8 +120,8 @@ export class MessageRepository implements IMessageRepository {
       `INSERT INTO whatsapp_messages (
         whatsapp_session_id, message_id, from_number, push_name, to_number, direction, type,
         content, media_metadata, status, is_auto_reply, auto_reply_source, context,
-        sent_at, delivered_at, read_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sent_at, delivered_at, read_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       [
         message.whatsappSessionId,
         message.messageId,
