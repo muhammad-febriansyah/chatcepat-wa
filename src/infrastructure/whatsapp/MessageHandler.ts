@@ -22,10 +22,11 @@ export class MessageHandler {
     socket.ev.on('messages.upsert', async ({ messages, type }) => {
       console.log(`📨 messages.upsert event received - Type: ${type}, Count: ${messages.length}`);
 
-      // Process both 'notify' (new messages) and 'append' (messages that may be new)
-      // We'll filter old messages based on timestamp
-      if (type !== 'notify' && type !== 'append') {
-        console.log(`⏭️ Skipping messages with type: ${type}`);
+      // Only process 'notify' type messages (real-time new messages)
+      // Skip 'append' type to avoid duplicate processing
+      // 'append' is usually for historical messages or duplicates
+      if (type !== 'notify') {
+        console.log(`⏭️ Skipping messages with type: ${type} (only processing 'notify')`);
         return;
       }
 
@@ -37,19 +38,17 @@ export class MessageHandler {
             continue;
           }
 
-          // For 'append' type messages, use more lenient timestamp check (30 minutes)
-          // For 'notify' type messages, use stricter check (5 minutes)
+          // Skip old messages (more than 2 minutes old to handle clock skew)
           const messageTimestamp = message.messageTimestamp as number;
           const messageDate = messageTimestamp ? new Date(messageTimestamp * 1000) : new Date();
-          const timeLimit = type === 'append' ? 30 : 5; // 30 minutes for append, 5 for notify
-          const cutoffTime = new Date(Date.now() - timeLimit * 60 * 1000);
+          const cutoffTime = new Date(Date.now() - 2 * 60 * 1000); // 2 minutes
 
           if (messageDate < cutoffTime) {
-            console.log(`⏭️ Skipping old ${type} message from ${message.key.remoteJid} (${messageDate.toISOString()}, limit: ${timeLimit}m)`);
+            console.log(`⏭️ Skipping old message from ${message.key.remoteJid} (${messageDate.toISOString()})`);
             continue;
           }
 
-          console.log(`📩 Processing ${type} message from: ${message.key.remoteJid} (timestamp: ${messageDate.toISOString()})`);
+          console.log(`📩 Processing message from: ${message.key.remoteJid} (timestamp: ${messageDate.toISOString()})`);
           await this.handleIncomingMessage(sessionId, socket, message);
         } catch (error) {
           console.error('❌ Error handling message:', error);

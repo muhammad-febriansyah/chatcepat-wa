@@ -54,6 +54,14 @@ export class ProcessIncomingMessageUseCase {
       console.log(`✅ Socket connected but DB not updated yet for session ${whatsappSessionId}, proceeding...`);
     }
 
+    // ===== DEDUPLICATION CHECK =====
+    // Check if message already exists (prevent duplicate processing)
+    const existingMessage = await this.messageRepository.findByMessageId(data.messageId);
+    if (existingMessage) {
+      console.log(`⏭️ Message already processed: ${data.messageId} from ${data.fromNumber} - skipping to avoid duplicate`);
+      return;
+    }
+
     // Store incoming message in database
     const incomingMessage = await this.messageRepository.create({
       whatsappSessionId: session.id,
