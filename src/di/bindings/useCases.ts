@@ -6,6 +6,7 @@ import { CreateSessionUseCase } from '@application/use-cases/session/CreateSessi
 import { GetSessionQRCodeUseCase } from '@application/use-cases/session/GetSessionQRCodeUseCase';
 import { GetUserSessionsUseCase } from '@application/use-cases/session/GetUserSessionsUseCase';
 import { DisconnectSessionUseCase } from '@application/use-cases/session/DisconnectSessionUseCase';
+import { UpdateSessionAIConfigUseCase } from '@application/use-cases/session/UpdateSessionAIConfigUseCase';
 import { ProcessIncomingMessageUseCase } from '@application/use-cases/messaging/ProcessIncomingMessageUseCase';
 import { ProcessAutoReplyUseCase } from '@application/use-cases/auto-reply/ProcessAutoReplyUseCase';
 import { CreateBroadcastUseCase } from '@application/use-cases/broadcast/CreateBroadcastUseCase';
@@ -27,6 +28,7 @@ export function bindUseCases(container: Container): void {
   container.bind<GetSessionQRCodeUseCase>(TYPES.GetSessionQRCodeUseCase).to(GetSessionQRCodeUseCase);
   container.bind<GetUserSessionsUseCase>(TYPES.GetUserSessionsUseCase).to(GetUserSessionsUseCase);
   container.bind<DisconnectSessionUseCase>(TYPES.DisconnectSessionUseCase).to(DisconnectSessionUseCase);
+  container.bind<UpdateSessionAIConfigUseCase>(TYPES.UpdateSessionAIConfigUseCase).to(UpdateSessionAIConfigUseCase);
 
   // Messaging Use Cases
   container.bind<ProcessIncomingMessageUseCase>(TYPES.ProcessIncomingMessageUseCase).to(ProcessIncomingMessageUseCase);

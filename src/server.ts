@@ -128,6 +128,17 @@ export class ExpressServer {
         const { container } = await import('@di/container');
         const { TYPES } = await import('@di/types');
         const openAIService = container.get<any>(TYPES.OpenAIService);
+        const sessionRepository = container.get<any>(TYPES.SessionRepository);
+
+        // Get session from database to load AI config
+        const session = await sessionRepository.findBySessionId(sessionId);
+
+        if (!session) {
+          return res.status(404).json({
+            success: false,
+            error: 'Session not found',
+          });
+        }
 
         // Build config from settings
         const config = {
@@ -136,14 +147,16 @@ export class ExpressServer {
           systemPrompt: settings?.customSystemPrompt || undefined,
         };
 
-        // Generate response using OpenAI service
+        // Generate response using OpenAI service with session's AI config
         // Use 'test-user' as the fromNumber for testing
         const response = await openAIService.generateResponse(
           sessionId,
           'test-user',
           message,
           config,
-          aiAssistantType || 'general'
+          aiAssistantType || session.aiAssistantType || 'general',
+          session.name || 'ChatCepat',
+          session.aiConfig || null
         );
 
         res.json({
@@ -154,7 +167,7 @@ export class ExpressServer {
         console.error('Error testing chatbot:', error);
         res.status(500).json({
           success: false,
-          error: error.message,
+          error: error.message || 'Failed to test chatbot',
         });
       }
     });

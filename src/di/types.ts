@@ -23,6 +23,7 @@ export const TYPES = {
   GetSessionQRCodeUseCase: Symbol.for('GetSessionQRCodeUseCase'),
   GetUserSessionsUseCase: Symbol.for('GetUserSessionsUseCase'),
   DisconnectSessionUseCase: Symbol.for('DisconnectSessionUseCase'),
+  UpdateSessionAIConfigUseCase: Symbol.for('UpdateSessionAIConfigUseCase'),
   SendMessageUseCase: Symbol.for('SendMessageUseCase'),
   ProcessIncomingMessageUseCase: Symbol.for('ProcessIncomingMessageUseCase'),
   GetMessageHistoryUseCase: Symbol.for('GetMessageHistoryUseCase'),

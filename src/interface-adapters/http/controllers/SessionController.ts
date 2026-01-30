@@ -5,6 +5,7 @@ import { CreateSessionUseCase } from '@application/use-cases/session/CreateSessi
 import { GetSessionQRCodeUseCase } from '@application/use-cases/session/GetSessionQRCodeUseCase';
 import { GetUserSessionsUseCase } from '@application/use-cases/session/GetUserSessionsUseCase';
 import { DisconnectSessionUseCase } from '@application/use-cases/session/DisconnectSessionUseCase';
+import { UpdateSessionAIConfigUseCase } from '@application/use-cases/session/UpdateSessionAIConfigUseCase';
 
 export class SessionController {
   async createSession(req: Request, res: Response): Promise<void> {
@@ -92,6 +93,124 @@ export class SessionController {
       });
     } catch (error: any) {
       console.error('Error disconnecting session:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+
+  async updateAIConfig(req: Request, res: Response): Promise<void> {
+    try {
+      const { sessionId } = req.params;
+      const userId = (req as any).user?.id || 1; // TODO: Get from auth middleware
+      const { aiConfig } = req.body;
+
+      if (!aiConfig) {
+        res.status(400).json({
+          success: false,
+          error: 'aiConfig is required',
+        });
+        return;
+      }
+
+      const useCase = container.get<UpdateSessionAIConfigUseCase>(TYPES.UpdateSessionAIConfigUseCase);
+      const session = await useCase.execute({
+        sessionId,
+        userId,
+        aiConfig,
+      });
+
+      res.json({
+        success: true,
+        message: 'AI configuration updated successfully',
+        data: session.toJSON(),
+      });
+    } catch (error: any) {
+      console.error('Error updating AI config:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+
+  async updateSettings(req: Request, res: Response): Promise<void> {
+    try {
+      const { sessionId } = req.params;
+      const userId = (req as any).user?.id || 1; // TODO: Get from auth middleware
+      const { settings, customSystemPrompt, aiConfig } = req.body;
+
+      // Support both old format (customSystemPrompt) and new format (aiConfig)
+      let updateData: any = {};
+
+      if (settings) {
+        updateData.settings = settings;
+      }
+
+      // If customSystemPrompt is provided (old format), convert to aiConfig
+      if (customSystemPrompt) {
+        const useCase = container.get<UpdateSessionAIConfigUseCase>(TYPES.UpdateSessionAIConfigUseCase);
+        const session = await useCase.execute({
+          sessionId,
+          userId,
+          aiConfig: {
+            ai_description: customSystemPrompt,
+          },
+        });
+
+        return res.json({
+          success: true,
+          message: 'Settings updated successfully',
+          data: session.toJSON(),
+        });
+      }
+
+      // If aiConfig is provided (new format)
+      if (aiConfig) {
+        const useCase = container.get<UpdateSessionAIConfigUseCase>(TYPES.UpdateSessionAIConfigUseCase);
+        const session = await useCase.execute({
+          sessionId,
+          userId,
+          aiConfig,
+        });
+
+        return res.json({
+          success: true,
+          message: 'Settings updated successfully',
+          data: session.toJSON(),
+        });
+      }
+
+      // If only settings is provided
+      if (Object.keys(updateData).length === 0) {
+        res.status(400).json({
+          success: false,
+          error: 'No settings to update',
+        });
+        return;
+      }
+
+      const sessionRepository = container.get<any>(TYPES.SessionRepository);
+      const session = await sessionRepository.findByUserIdAndSessionId(userId, sessionId);
+
+      if (!session) {
+        res.status(404).json({
+          success: false,
+          error: 'Session not found or access denied',
+        });
+        return;
+      }
+
+      const updatedSession = await sessionRepository.update(sessionId, updateData);
+
+      res.json({
+        success: true,
+        message: 'Settings updated successfully',
+        data: updatedSession.toJSON(),
+      });
+    } catch (error: any) {
+      console.error('Error updating settings:', error);
       res.status(500).json({
         success: false,
         error: error.message,

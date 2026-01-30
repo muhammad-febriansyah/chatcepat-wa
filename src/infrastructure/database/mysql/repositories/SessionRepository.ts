@@ -135,6 +135,10 @@ export class SessionRepository implements ISessionRepository {
       updates.push('ai_assistant_type = ?');
       values.push(data.aiAssistantType);
     }
+    if (data.aiConfig !== undefined) {
+      updates.push('ai_config = ?');
+      values.push(data.aiConfig ? JSON.stringify(data.aiConfig) : null);
+    }
     if (data.qrCode !== undefined) {
       updates.push('qr_code = ?');
       values.push(data.qrCode);

@@ -205,6 +205,20 @@ router.post('/:sessionId/disconnect', (req, res) => controller.disconnectSession
 router.delete('/:sessionId', (req, res) => controller.disconnectSession(req, res));
 
 /**
+ * @route PUT /api/sessions/:sessionId/ai-config
+ * @desc Update AI configuration for a session
+ * @body { aiConfig: { creation_method?, agent_category?, primary_language?, communication_tone?, ai_description?, products? } }
+ */
+router.put('/:sessionId/ai-config', (req, res) => controller.updateAIConfig(req, res));
+
+/**
+ * @route PUT /api/sessions/:sessionId/settings
+ * @desc Update session settings (backward compatible with old frontend)
+ * @body { settings?, customSystemPrompt?, aiConfig? }
+ */
+router.put('/:sessionId/settings', (req, res) => controller.updateSettings(req, res));
+
+/**
  * @route POST /api/sessions/:sessionId/cleanup
  * @desc Force cleanup session files (for manual cleanup after logout issues)
  */
