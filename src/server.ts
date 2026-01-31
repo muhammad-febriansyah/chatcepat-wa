@@ -144,7 +144,6 @@ export class ExpressServer {
         const config = {
           temperature: settings?.temperature || 0.7,
           maxTokens: settings?.maxTokens || 500,
-          systemPrompt: settings?.customSystemPrompt || undefined,
         };
 
         // Generate response using OpenAI service with session's AI config
