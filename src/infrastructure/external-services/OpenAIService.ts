@@ -176,6 +176,14 @@ export class OpenAIService implements IOpenAIService {
         };
         context += `\nGAYA KOMUNIKASI: ${toneMap[aiConfig.communication_tone] || 'Professional'}\n`;
       }
+
+      // Add PDF training content if available
+      if (aiConfig.training_pdf_content && aiConfig.training_pdf_content.trim()) {
+        context += `\nDOKUMEN TRAINING & KNOWLEDGE BASE:\n`;
+        context += `Gunakan informasi berikut sebagai referensi utama untuk menjawab pertanyaan customer:\n\n`;
+        context += `${aiConfig.training_pdf_content}\n`;
+        context += `\nPANDUAN: Prioritaskan informasi dari dokumen training di atas. Jika customer bertanya tentang hal yang ada dalam dokumen, jawab berdasarkan dokumen tersebut.\n`;
+      }
     }
 
     return context;
