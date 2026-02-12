@@ -28,7 +28,8 @@ export const whatsappConfig = {
   // Session management
   session: {
     qrTimeoutSeconds: 60,
-    reconnectMaxAttempts: 5,
-    reconnectDelayMs: 5000,
+    reconnectMaxAttempts: 20,      // Lebih banyak percobaan sebelum menyerah
+    reconnectDelayMs: 3000,        // Base delay 3 detik
+    reconnectMaxDelayMs: 60000,    // Max delay 60 detik (exponential backoff)
   },
 };

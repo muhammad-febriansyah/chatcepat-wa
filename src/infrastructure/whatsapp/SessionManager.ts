@@ -156,8 +156,8 @@ export class SessionManager {
             isFatalError = true;
             break;
           case DisconnectReason.timedOut:
-            userFriendlyReason = 'Waktu habis. Silakan coba scan QR code lagi';
-            isFatalError = true;
+            userFriendlyReason = 'Koneksi timeout. Mencoba menghubungkan ulang...';
+            // Bukan fatal - cukup reconnect, jangan hapus session files
             break;
           case DisconnectReason.restartRequired:
             userFriendlyReason = 'Perlu restart. Silakan coba lagi';
@@ -214,39 +214,50 @@ export class SessionManager {
 
           if (attempts < whatsappConfig.session.reconnectMaxAttempts) {
             this.reconnectAttempts.set(sessionId, attempts + 1);
-            console.log(`Reconnecting session ${sessionId}, attempt ${attempts + 1}`);
+
+            // Exponential backoff: 3s, 6s, 12s, 24s, ... max 60s
+            const baseDelay = whatsappConfig.session.reconnectDelayMs;
+            const maxDelay = (whatsappConfig.session as any).reconnectMaxDelayMs || 60000;
+            const delay = Math.min(baseDelay * Math.pow(2, attempts), maxDelay);
+
+            console.log(`Reconnecting session ${sessionId}, attempt ${attempts + 1}/${whatsappConfig.session.reconnectMaxAttempts}, wait ${delay}ms`);
 
             // Remove failed session from active sessions before reconnecting
             this.activeSessions.delete(sessionId);
 
-            // Wait before reconnecting
-            await new Promise(resolve => setTimeout(resolve, whatsappConfig.session.reconnectDelayMs));
+            // Wait before reconnecting (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, delay));
 
             // Reconnect
             await this.createSession(sessionId, userId, callbacks);
           } else {
-            console.error(`Max reconnect attempts reached for session ${sessionId}`);
+            // Reset counter dan coba lagi setelah jeda panjang (persistent reconnect)
+            // Jangan mati selamanya - WA disconnect itu normal
+            console.warn(`⚠️ Max quick reconnect attempts reached for session ${sessionId}, waiting 2 minutes before retrying...`);
             this.activeSessions.delete(sessionId);
+            this.reconnectAttempts.set(sessionId, 0); // Reset counter
 
-            // Update database DIRECTLY
+            // Update database ke disconnected sementara
             try {
               await this.sessionRepository.update(sessionId, {
                 status: 'disconnected',
                 lastDisconnectedAt: new Date(),
                 isActive: false,
               });
-              console.log(`✅ Database updated for session ${sessionId} (max reconnect)`);
             } catch (error) {
               console.error(`❌ Error updating database for session ${sessionId}:`, error);
             }
 
-            // Emit connection failed for max reconnect attempts
-            this.socketServer.emitSessionConnectionFailed(userId, sessionId, 'Gagal menghubungkan setelah beberapa percobaan', statusCode);
+            this.socketServer.emitSessionDisconnected(userId, sessionId, 'Reconnecting in 2 minutes...');
 
-            callbacks.onDisconnected?.(sessionId, 'Max reconnect attempts reached');
+            // Tunggu 2 menit lalu coba lagi
+            await new Promise(resolve => setTimeout(resolve, 120000));
 
-            // Emit WebSocket event
-            this.socketServer.emitSessionDisconnected(userId, sessionId, 'Max reconnect attempts reached');
+            // Cek apakah session masih perlu direconnect (belum manual disconnect / logout)
+            if (!this.manualDisconnect.has(sessionId)) {
+              console.log(`🔄 Retrying session ${sessionId} after long wait...`);
+              await this.createSession(sessionId, userId, callbacks);
+            }
           }
         } else {
           // Logged out or manual disconnect - remove session and clean up
