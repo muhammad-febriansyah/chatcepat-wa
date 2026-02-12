@@ -186,11 +186,11 @@ export class ScrapeContactsUseCase {
 
       if (lidToResolve.length > 0) {
         try {
-          // Process in batches of 50 to avoid rate limiting
-          const batchSize = 50;
+          // Process in smaller batches (20 instead of 50) to avoid rate limiting
+          const batchSize = 20;
           for (let i = 0; i < lidToResolve.length; i += batchSize) {
             const batch = lidToResolve.slice(i, i + batchSize);
-            console.log(`🔄 Resolving LIDs batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(lidToResolve.length/batchSize)}...`);
+            console.log(`🔄 Resolving LIDs batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(lidToResolve.length/batchSize)} (${batch.length} LIDs)...`);
 
             try {
               // Use usync to get phone numbers from LIDs
@@ -260,12 +260,15 @@ export class ScrapeContactsUseCase {
                 }
               }
             } catch (queryError) {
-              console.log(`⚠️ Could not resolve LIDs via usync: ${queryError}`);
+              console.error(`❌ Failed to resolve LID batch ${Math.floor(i/batchSize) + 1}:`, queryError);
+              console.log(`⚠️ Usync query error - WhatsApp might be rate limiting or blocking the request`);
             }
 
-            // Add delay between batches
+            // Add longer delay between batches to avoid rate limiting (3-5 seconds)
             if (i + batchSize < lidToResolve.length) {
-              await this.sleep(2000);
+              const delay = this.getRandomDelay(3000, 5000);
+              console.log(`⏳ Waiting ${delay}ms before next LID resolution batch...`);
+              await this.sleep(delay);
             }
           }
         } catch (e) {
@@ -273,7 +276,23 @@ export class ScrapeContactsUseCase {
         }
       }
 
-      console.log(`✅ Resolved ${lidToPhoneMap.size} LIDs to phone numbers`);
+      const resolvedPercentage = lidToResolve.length > 0
+        ? Math.round((lidToPhoneMap.size / lidToResolve.length) * 100)
+        : 0;
+      console.log(`✅ Resolved ${lidToPhoneMap.size}/${lidToResolve.length} LIDs to phone numbers (${resolvedPercentage}%)`);
+
+      if (lidToPhoneMap.size === 0 && lidToResolve.length > 0) {
+        console.log(`⚠️ WARNING: No LIDs were resolved! This means:`);
+        console.log(`   1. WhatsApp might be blocking usync queries`);
+        console.log(`   2. The session might need re-authentication`);
+        console.log(`   3. Rate limiting is in effect`);
+        console.log(`   → Contacts will be saved with LID_ prefix instead of phone numbers`);
+      } else if (resolvedPercentage < 50 && lidToResolve.length > 0) {
+        console.log(`⚠️ Low LID resolution rate (${resolvedPercentage}%). Consider:`);
+        console.log(`   - Waiting longer between scrapes`);
+        console.log(`   - Reducing scraping frequency`);
+        console.log(`   - Checking WhatsApp connection stability`);
+      }
 
       // Process groups with delay to avoid detection
       for (let i = 0; i < groupJids.length; i++) {
@@ -290,16 +309,44 @@ export class ScrapeContactsUseCase {
             let isLidFormat = false;
 
             if (participant.id.includes('@lid')) {
-              // Check if we resolved this LID
+              // Check if we resolved this LID via usync
               const resolvedJid = lidToPhoneMap.get(participant.id);
               if (resolvedJid) {
                 phoneNumber = this.cleanPhoneNumber(resolvedJid);
+                console.log(`  ✅ Using usync-resolved number for LID: ${phoneNumber}`);
               } else {
-                // Save LID as identifier (without @lid suffix)
-                const lidNumber = participant.id.replace('@lid', '');
-                phoneNumber = `LID_${lidNumber}`;
-                isLidFormat = true;
-                console.log(`  📝 Saving LID as identifier: ${phoneNumber}`);
+                // Fallback: Try to get phone from message history
+                let foundFromMessages = false;
+                try {
+                  const messages = socket.store?.messages?.[participant.id];
+                  if (messages) {
+                    // Check recent messages for real phone number
+                    const recentMessages = Array.from(messages.values()).slice(-10);
+                    for (const msg of recentMessages) {
+                      const msgData = msg as any;
+                      // If this contact sent a message, their real JID might be in the key
+                      if (msgData.key?.participant && !msgData.key.participant.includes('@lid')) {
+                        const realJid = msgData.key.participant;
+                        phoneNumber = this.cleanPhoneNumber(realJid);
+                        if (phoneNumber) {
+                          foundFromMessages = true;
+                          console.log(`  ✅ Resolved LID from message history: ${phoneNumber}`);
+                          break;
+                        }
+                      }
+                    }
+                  }
+                } catch (e) {
+                  // Ignore
+                }
+
+                if (!foundFromMessages) {
+                  // Last resort: Save LID as identifier
+                  const lidNumber = participant.id.replace('@lid', '');
+                  phoneNumber = `LID_${lidNumber}`;
+                  isLidFormat = true;
+                  console.log(`  ⚠️ Could not resolve LID, saving as: ${phoneNumber}`);
+                }
               }
             } else {
               phoneNumber = this.cleanPhoneNumber(participant.id);
@@ -416,11 +463,22 @@ export class ScrapeContactsUseCase {
       const withDisplayName = contactsToSave.filter(c => c.displayName).length;
       const withPushName = contactsToSave.filter(c => c.pushName).length;
       const withAnyName = contactsToSave.filter(c => c.displayName || c.pushName).length;
+      const lidContacts = contactsToSave.filter(c => c.phoneNumber.startsWith('LID_')).length;
+      const realPhoneContacts = contactsToSave.filter(c => !c.phoneNumber.startsWith('LID_')).length;
 
-      console.log(`✅ Scraped ${totalScraped} unique contacts`);
+      console.log(`\n📊 SCRAPING STATISTICS:`);
+      console.log(`✅ Total scraped: ${totalScraped} unique contacts`);
+      console.log(`📞 Real phone numbers: ${realPhoneContacts} (${Math.round(realPhoneContacts/totalScraped*100)}%)`);
+      console.log(`🔐 LID format (unresolved): ${lidContacts} (${Math.round(lidContacts/totalScraped*100)}%)`);
       console.log(`📛 Contacts with display_name: ${withDisplayName}`);
       console.log(`📛 Contacts with push_name: ${withPushName}`);
       console.log(`📛 Contacts with any name: ${withAnyName} (${Math.round(withAnyName/totalScraped*100)}%)`);
+
+      if (lidContacts > realPhoneContacts) {
+        console.log(`\n⚠️ WARNING: More LID contacts than real phone numbers!`);
+        console.log(`   This suggests usync query resolution is failing.`);
+        console.log(`   LID contacts cannot receive messages directly.`);
+      }
 
       // Save contacts in batches to avoid overload
       const totalSaved = await this.saveContactsInBatches(contactsToSave);
